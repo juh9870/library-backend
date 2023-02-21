@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   InternalServerErrorException,
@@ -38,6 +39,13 @@ export class AuthService {
       throw new ConflictException(
         `User with the name ${data.username} already exists`,
       );
+    if (
+      !data.password.match(
+        /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,}$/,
+      )
+    ) {
+      throw new BadRequestException('Invalid password');
+    }
     const pwdHash = await bcrypt.hash(data.password, this.config.SALT_ROUNDS);
     return this.usersService.createUser({
       username: data.username,
