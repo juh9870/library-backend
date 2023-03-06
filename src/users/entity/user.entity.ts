@@ -5,4 +5,4 @@ import { UserSchema } from '../../../prisma/generated/zod';
 
 export const UserApi = extendApi(UserSchema);
 
-export class UserDto extends createZodDto(UserApi) {}
+export class UserEntity extends createZodDto(UserApi) {}

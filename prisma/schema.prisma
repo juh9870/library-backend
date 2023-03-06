@@ -6,7 +6,8 @@ generator client {
 }
 
 generator zod {
-  provider = "zod-prisma-types"
+  provider                  = "zod-prisma-types"
+  createRelationValuesTypes = true
 }
 
 datasource db {
@@ -22,9 +23,56 @@ model Session {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  createdAt DateTime @default(now())
+  id           String       @id @default(uuid()) @db.Uuid
+  createdAt    DateTime     @default(now())
+  permissions  Permission[]
+  username     String       @unique @db.VarChar(128) /// @zod.string.min(4).max(128)
+  passwordHash String       @db.VarChar(72)
+  books        Book[]
+}
 
-  username     String @unique @db.VarChar(128) /// @zod.string.min(8).max(128)
-  passwordHash String @db.VarChar(72)
+enum Permission {
+  ADMIN
+  APPROVE
+  CREATE
+  ARCHIVE
+  EDIT
+  DELETE
+}
+
+model Book {
+  id             String    @id @default(uuid()) @db.Uuid
+  title          String
+  imageFile      String?
+  bookFile       String?
+  description    String
+  state          BookState
+  published_date DateTime?
+  tags           Tag[]     @relation("BookTag")
+  User           User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId         String?   @db.Uuid
+
+  @@index([state])
+}
+
+model Tag {
+  id    Int     @id @default(autoincrement())
+  name  String
+  type  TagType
+  books Book[]  @relation("BookTag")
+
+  @@unique([type, name])
+}
+
+enum TagType {
+  GENRE
+  AUTHOR
+  MISC
+}
+
+enum BookState {
+  DRAFT
+  UNAPPROVED
+  VISIBLE
+  ARCHIVED
 }

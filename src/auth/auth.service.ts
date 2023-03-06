@@ -11,7 +11,7 @@ import { PrismaService } from 'nestjs-prisma';
 import type { ReadonlyDeep } from 'type-fest';
 
 import { ConfigService } from '../config/config.service';
-import type { UserDto } from '../users/dto/user.dto';
+import type { UserEntity } from '../users/entity/user.entity';
 import { UsersService } from '../users/users.service';
 import type { RegisterDto } from './dto/register.dto';
 
@@ -23,7 +23,7 @@ export class AuthService {
     private prisma: PrismaService,
   ) {}
 
-  async validateUser(username: string, password: string): Promise<UserDto> {
+  async validateUser(username: string, password: string): Promise<UserEntity> {
     const user = await this.usersService.findByUsername(username);
 
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
@@ -33,7 +33,7 @@ export class AuthService {
     return user;
   }
 
-  async register(data: ReadonlyDeep<RegisterDto>): Promise<UserDto> {
+  async register(data: ReadonlyDeep<RegisterDto>): Promise<UserEntity> {
     const existingUser = await this.usersService.findByUsername(data.username);
     if (existingUser)
       throw new ConflictException(
@@ -67,7 +67,7 @@ export class AuthService {
 
   async invalidateAllSessions(
     request: Request,
-    user: UserDto,
+    user: UserEntity,
   ): Promise<boolean> {
     await this.logout(request);
     await this.prisma.session.deleteMany({

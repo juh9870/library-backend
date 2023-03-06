@@ -1,3 +1,5 @@
+import '@total-typescript/ts-reset';
+
 import { patchNestjsSwagger, ZodValidationPipe } from '@anatine/zod-nestjs';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';

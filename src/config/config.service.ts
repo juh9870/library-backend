@@ -40,6 +40,7 @@ export const configSchema = z.object({
   COOKIE_MAX_AGE: z.string().transform((s) => parse(s)),
   SESSION_CHECK_PERIOD: z.string().transform((s) => parse(s)),
   SESSION_SECRET: z.string().min(64),
+  FILE_PATH: z.string(),
   SALT_ROUNDS: z.string().regex(/^\d+$/).transform(Number),
 });
 

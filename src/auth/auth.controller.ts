@@ -1,19 +1,20 @@
 import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import {
   ApiBody,
+  ApiCookieAuth,
   ApiCreatedResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
 
-import { UserDto } from '../users/dto/user.dto';
+import { UserEntity } from '../users/entity/user.entity';
 import { AuthService } from './auth.service';
 import { AuthUser } from './decorators/auth-user.decorator';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
-import { IsAuthenticatedGuard } from './guards/is-authenticated/is-authenticated.guard';
-import { LocalAuthGuard } from './guards/local-auth/local-auth.guard';
+import { IsAuthenticatedGuard } from './guards/is-authenticated.guard';
+import { LocalAuthGuard } from './guards/local-auth.guard';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -53,9 +54,10 @@ export class AuthController {
   @ApiCreatedResponse({
     description: 'Logged out successfully',
   })
+  @ApiCookieAuth()
   async invalidateAllSessions(
     @Req() request: Request,
-    @AuthUser() user: UserDto,
+    @AuthUser() user: UserEntity,
   ): Promise<boolean> {
     return this.authService.invalidateAllSessions(request, user);
   }
