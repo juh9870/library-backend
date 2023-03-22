@@ -28,10 +28,13 @@ export class UsersService {
     const perms: PermissionType[] = [];
     if ((await this.prisma.user.count()) == 0) {
       perms.push(PermissionSchema.Enum.ADMIN);
+    } else {
+      perms.push(PermissionSchema.Enum.CREATE);
     }
     return this.prisma.user.create({
       data: {
         ...data,
+        lastTokenReset: new Date(0),
         permissions: perms,
       },
     });

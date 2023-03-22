@@ -1,7 +1,15 @@
 import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
-import { ApiBody, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 
+import { AuthUser } from '../auth/decorators/auth-user.decorator';
 import { IsAdminGuard } from '../auth/guards/is-admin.guard';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SetPermissionsDto } from './dto/set-permissions.dto';
 import { UserEntity } from './entity/user.entity';
 import { UsersService } from './users.service';
@@ -10,6 +18,15 @@ import { UsersService } from './users.service';
 @ApiTags('users')
 export class UsersController {
   constructor(private usersService: UsersService) {}
+
+  @ApiOperation({ description: 'Returns logged in user' })
+  @ApiOkResponse({ type: UserEntity })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('me')
+  async me(@AuthUser() user: UserEntity): Promise<UserEntity> {
+    return user;
+  }
 
   @ApiOperation({ description: 'Returns user by given id' })
   @ApiOkResponse({ type: UserEntity })

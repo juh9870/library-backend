@@ -2,25 +2,47 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  OnApplicationBootstrap,
   StreamableFile,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import axios from 'axios';
+import { randomUUID } from 'crypto';
 import type { Response } from 'express';
+import * as fs from 'fs';
 import { PrismaService } from 'nestjs-prisma';
+import { delayWhen, distinct, from, interval, lastValueFrom, map } from 'rxjs';
+import { z } from 'zod';
 
-import { BookStateSchema } from '../../prisma/generated/zod';
+import {
+  BookStateSchema,
+  BookWhereInputSchema,
+  TagTypeSchema,
+} from '../../prisma/generated/zod';
 import { FilesService } from '../files/files.service';
 import type { UserEntity } from '../users/entity/user.entity';
 import type { CreateBookDto } from './dto/create-book.dto';
 import type { UpdateBookDto } from './dto/update-book.dto';
 import type { BookEntity } from './entities/book.entity';
+import type { TagEntity } from './entities/tag.entity';
 
 export interface BookProxy {
   get(): Promise<BookEntity>;
 }
 
+function getTypeName(e: Pick<TagEntity, 'type' | 'name'>): {
+  type_name: Pick<TagEntity, 'type' | 'name'>;
+} {
+  return {
+    type_name: {
+      type: e.type,
+      name: e.name,
+    },
+  };
+}
+
 @Injectable()
-export class BooksService {
+export class BooksService implements OnApplicationBootstrap {
   constructor(
     private prisma: PrismaService,
     private filesService: FilesService,
@@ -54,9 +76,7 @@ export class BooksService {
           connectOrCreate: tags.map(
             (tag) =>
               ({
-                where: {
-                  type_name: tag,
-                },
+                where: getTypeName(tag),
                 create: tag,
               } as const),
           ),
@@ -69,10 +89,68 @@ export class BooksService {
     });
   }
 
-  async findAllVisible(): Promise<BookEntity[]> {
+  async findAllVisible(query = ''): Promise<BookEntity[]> {
+    const tagSchema = z
+      .preprocess(
+        (e) =>
+          String(e)
+            .split(':')
+            .map((e, i) => (i === 0 ? e.toUpperCase() : e.toLowerCase())),
+        z.tuple([TagTypeSchema.or(z.literal('DESC')), z.string()]),
+      )
+      .transform((e) => ({ type: e[0], name: e[1] }));
+    const segments = query
+      .split(';')
+      .map((e) => e.trim())
+      .filter(Boolean);
+
+    const conditions: z.infer<typeof BookWhereInputSchema>[] = [];
+    conditions.push({
+      state: BookStateSchema.Enum.VISIBLE,
+    });
+    for (const segment of segments) {
+      if (segment.includes(':')) {
+        const parsedTag = tagSchema.safeParse(segment);
+        if (!parsedTag.success)
+          throw new BadRequestException(parsedTag.error.format());
+        const value = parsedTag.data;
+        if (value.type === 'DESC') {
+          for (const query of value.name.toLowerCase().split(/\P{L}+/gu)) {
+            conditions.push({
+              description: {
+                contains: query,
+                mode: 'insensitive',
+              },
+            });
+          }
+        } else {
+          conditions.push({
+            tags: {
+              some: {
+                type: value.type,
+                name: {
+                  equals: value.name,
+                  mode: 'insensitive',
+                },
+              },
+            },
+          });
+        }
+      } else {
+        for (const query of segment.toLowerCase().split(/\P{L}+/gu)) {
+          conditions.push({
+            title: {
+              contains: query,
+              mode: 'insensitive',
+            },
+          });
+        }
+      }
+    }
+
     return await this.prisma.book.findMany({
       where: {
-        state: BookStateSchema.Enum.VISIBLE,
+        AND: conditions,
       },
       include: {
         tags: true,
@@ -84,7 +162,9 @@ export class BooksService {
     return await this.prisma.book.findMany({
       where: {
         userId: user.id,
-        state: BookStateSchema.Enum.DRAFT,
+        state: {
+          in: [BookStateSchema.Enum.DRAFT, BookStateSchema.Enum.UNAPPROVED],
+        },
       },
       include: {
         tags: true,
@@ -123,8 +203,7 @@ export class BooksService {
     res: Response,
   ): Promise<StreamableFile> {
     const book = await proxy.get();
-    if (!book.imageFile) throw new NotFoundException();
-    return this.filesService.getFile(book.id, book.imageFile, res, null);
+    return this.filesService.getFile(book.imageFile, res, null);
   }
 
   async findFileByProxy(
@@ -133,7 +212,7 @@ export class BooksService {
   ): Promise<StreamableFile> {
     const book = await proxy.get();
     if (!book.bookFile) throw new NotFoundException();
-    return this.filesService.getFile(book.id, book.bookFile, res, book.title);
+    return this.filesService.getFile(book.bookFile, res, book.title);
   }
 
   async update(
@@ -141,8 +220,12 @@ export class BooksService {
     updateBookDto: UpdateBookDto,
     proxy: BookProxy,
   ): Promise<BookEntity> {
-    await proxy.get();
+    const book = await proxy.get();
     const newTags = updateBookDto.tags;
+    const tagEq = (a: Omit<TagEntity, 'id'>) => (b: Omit<TagEntity, 'id'>) =>
+      a.type == b.type && a.name == b.name;
+    const connect = newTags?.filter((e) => !book.tags.find(tagEq(e)));
+    const deleted = newTags && book.tags.filter((e) => !newTags.find(tagEq(e)));
     return this.prisma.book.update({
       where: {
         id,
@@ -150,9 +233,11 @@ export class BooksService {
       data: {
         ...updateBookDto,
         tags: newTags && {
-          set: newTags.map((tag) => ({
-            type_name: tag,
+          connectOrCreate: connect?.map((e) => ({
+            where: getTypeName(e),
+            create: e,
           })),
+          disconnect: deleted?.map((e) => getTypeName(e)),
         },
       },
       include: { tags: true },
@@ -219,10 +304,26 @@ export class BooksService {
     });
   }
 
-  async approve(id: string, proxy: BookProxy): Promise<BookEntity> {
+  async submit(id: string, proxy: BookProxy): Promise<BookEntity> {
     const book = await proxy.get();
     if (book.state !== BookStateSchema.Enum.DRAFT) {
-      throw new BadRequestException('Only Draft books can be approved');
+      throw new BadRequestException(
+        'Only Draft books can be submitted for approval',
+      );
+    }
+    return this.prisma.book.update({
+      where: { id },
+      data: {
+        state: BookStateSchema.Enum.UNAPPROVED,
+      },
+      include: { tags: true },
+    });
+  }
+
+  async approve(id: string, proxy: BookProxy): Promise<BookEntity> {
+    const book = await proxy.get();
+    if (book.state !== BookStateSchema.Enum.UNAPPROVED) {
+      throw new BadRequestException('Only Unapproved books can be approved');
     }
     return this.prisma.book.update({
       where: { id },
@@ -258,5 +359,129 @@ export class BooksService {
     });
     await this.filesService.deleteAll(id);
     return returnedBook;
+  }
+
+  async seed(): Promise<void> {
+    // if (Math.random() < 1) return;
+    const schema = z.array(
+      z
+        .object({
+          book_page: z.string(),
+          title: z.string().transform((e) => e.replace('Назва: ', '')),
+          author: z.string().nullable(),
+          description: z.string(),
+          genres: z
+            .string()
+            .transform((e) =>
+              e
+                .replace('Жанри: ', '')
+                .split(',')
+                .map((e) => e.trim()),
+            )
+            .nullable(),
+          cover: z
+            .string()
+            .url()
+            .transform((e) => new URL(e)),
+          download: z
+            .string()
+            .url()
+            .transform((e) => new URL(e))
+            .nullable(),
+        })
+        .strip(),
+    );
+
+    const books = schema.parse(
+      JSON.parse(fs.readFileSync('./csvjson.json').toString()),
+    );
+    await lastValueFrom(
+      from(books).pipe(
+        distinct((value) => value.title),
+        delayWhen((_, i) => interval(i * 250)),
+        // skip(100),
+        map(async (book, idx) => {
+          console.log('Parsing book:', book.title, `(${idx}/${books.length})`);
+          const tags: Omit<TagEntity, 'id'>[] = [];
+          if (book.author) {
+            tags.push({
+              type: 'AUTHOR',
+              name: book.author,
+            });
+          }
+          for (const genre of book.genres ?? []) {
+            tags.push({
+              type: 'GENRE',
+              name: genre.trim(),
+            });
+          }
+
+          const id = randomUUID();
+          let fileName: string | null = null;
+          if (book.download) {
+            const file = await axios(book.download.toString(), {
+              responseType: 'stream',
+            });
+            const [fileStream, _fileName] =
+              await this.filesService.createWriteStream(
+                id,
+                'book',
+                book.download.pathname.split('/').at(-1)!,
+              );
+            fileName = _fileName;
+            file.data.pipe(fileStream);
+          } else {
+            return;
+          }
+
+          const cover = await axios(book.cover.toString(), {
+            responseType: 'stream',
+          });
+          const [coverStream, coverName] =
+            await this.filesService.createWriteStream(
+              id,
+              'cover',
+              book.cover.pathname.split('/').at(-1)!,
+            );
+
+          cover.data.pipe(coverStream);
+
+          await new Promise((resolve, reject) => {
+            coverStream.on('finish', resolve);
+            coverStream.on('error', reject);
+          });
+
+          await this.prisma.book.create({
+            data: {
+              id: id,
+              title: book.title,
+              published_date: new Date(),
+              description: book.description,
+              tags: {
+                connectOrCreate: tags.map((e) => ({
+                  where: getTypeName(e),
+                  create: e,
+                })),
+              },
+              state: 'VISIBLE',
+              bookFile: fileName,
+              imageFile: coverName,
+              userId: null,
+            },
+          });
+          console.log(
+            'Done parsing book:',
+            book.title,
+            `(${idx}/${books.length})`,
+          );
+        }),
+      ),
+    );
+  }
+
+  async onApplicationBootstrap(): Promise<void> {
+    console.log('creating books');
+    // await this.seed();
+    console.log('creating books finished');
   }
 }

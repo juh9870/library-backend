@@ -6,6 +6,8 @@ export const CreateBookDtoSchema = BookEntitySchema.omit({
   id: true,
   state: true,
   userId: true,
+  bookFile: true,
+  imageFile: true,
 });
 
 export class CreateBookDto extends createZodDto(CreateBookDtoSchema) {}

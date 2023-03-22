@@ -21,17 +21,25 @@ import { UsersModule } from './users/users.module';
       isGlobal: true,
       prismaServiceOptions: {
         prismaOptions: {
-          log: ['query', 'info', 'warn', 'error'],
+          // log: ['query', 'info', 'warn', 'error'],
         },
       },
     }),
-    CaslModule.forRoot<PermissionType, AuthorizableUser, { user: UserEntity }>({
-      superuserRole: PermissionSchema.Enum.ADMIN,
-      getUserFromRequest: (req) => ({
-        id: req.user.id,
-        roles: req.user.permissions,
-      }),
-    }),
+    CaslModule.forRoot<PermissionType, AuthorizableUser, { user?: UserEntity }>(
+      {
+        superuserRole: PermissionSchema.Enum.ADMIN,
+        getUserFromRequest: (req) =>
+          req.user
+            ? {
+                id: req.user.id,
+                roles: req.user.permissions,
+              }
+            : {
+                id: 'unauthenticated',
+                roles: [],
+              },
+      },
+    ),
     MulterModule.register({
       dest: './upload',
     }),

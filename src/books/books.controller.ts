@@ -7,6 +7,7 @@ import {
   ParseFilePipeBuilder,
   Patch,
   Post,
+  Query,
   Res,
   StreamableFile,
   UploadedFile,
@@ -15,12 +16,13 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
+  ApiBearerAuth,
   ApiBody,
   ApiConsumes,
-  ApiCookieAuth,
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
@@ -28,7 +30,8 @@ import { AccessGuard, CaslSubject, UseAbility } from 'nest-casl';
 
 import { BookStateSchema } from '../../prisma/generated/zod';
 import { AuthUser } from '../auth/decorators/auth-user.decorator';
-import { IsAuthenticatedGuard } from '../auth/guards/is-authenticated.guard';
+import { Public } from '../auth/decorators/public.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { FileUploadDto } from '../files/dto/file-upload.dto';
 import { UserEntity } from '../users/entity/user.entity';
 import { book, bookId } from './books.hook';
@@ -45,14 +48,19 @@ export class BooksController {
 
   @Get()
   @ApiOkResponse({ type: BookEntity, isArray: true })
-  findAllVisible(): Promise<BookEntity[]> {
-    return this.bookService.findAllVisible();
+  @ApiQuery({
+    name: 'tags',
+    type: String,
+    required: false,
+  })
+  findAllVisible(@Query('tags') tagsQuery?: string): Promise<BookEntity[]> {
+    return this.bookService.findAllVisible(tagsQuery);
   }
 
   @Get('/drafts')
   @ApiOkResponse({ type: BookEntity, isArray: true })
-  @ApiCookieAuth()
-  @UseGuards(IsAuthenticatedGuard, AccessGuard)
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, AccessGuard)
   @UseAbility(
     BookActions.read,
     BookEntity,
@@ -67,8 +75,8 @@ export class BooksController {
 
   @Get('/pending')
   @ApiOkResponse({ type: BookEntity, isArray: true })
-  @ApiCookieAuth()
-  @UseGuards(IsAuthenticatedGuard, AccessGuard)
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, AccessGuard)
   @UseAbility(
     BookActions.read,
     BookEntity,
@@ -80,8 +88,8 @@ export class BooksController {
 
   @Get('/archived')
   @ApiOkResponse({ type: BookEntity, isArray: true })
-  @ApiCookieAuth()
-  @UseGuards(IsAuthenticatedGuard, AccessGuard)
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, AccessGuard)
   @UseAbility(
     BookActions.read,
     BookEntity,
@@ -94,8 +102,8 @@ export class BooksController {
   @Post()
   @ApiOperation({ description: 'Creates a book' })
   @ApiCreatedResponse({ type: BookEntity })
-  @ApiCookieAuth()
-  @UseGuards(IsAuthenticatedGuard, AccessGuard)
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, AccessGuard)
   @UseAbility(BookActions.create, BookEntity)
   create(
     @Body() createBookDto: CreateBookDto,
@@ -106,8 +114,9 @@ export class BooksController {
 
   @Get(':id')
   @ApiOkResponse({ type: BookEntity })
-  @ApiCookieAuth()
-  @UseGuards(IsAuthenticatedGuard, AccessGuard)
+  @ApiBearerAuth()
+  @Public()
+  @UseGuards(JwtAuthGuard, AccessGuard)
   @UseAbility(BookActions.read, BookEntity, bookId())
   findOne(
     @Param('id') _id: string,
@@ -124,8 +133,9 @@ export class BooksController {
       format: 'binary',
     },
   })
-  @ApiCookieAuth()
-  @UseGuards(IsAuthenticatedGuard, AccessGuard)
+  @ApiBearerAuth()
+  @Public()
+  @UseGuards(JwtAuthGuard, AccessGuard)
   @UseAbility(BookActions.read, BookEntity, bookId())
   findCover(
     @Param('id') _id: string,
@@ -143,8 +153,9 @@ export class BooksController {
       format: 'binary',
     },
   })
-  @ApiCookieAuth()
-  @UseGuards(IsAuthenticatedGuard, AccessGuard)
+  @ApiBearerAuth()
+  @Public()
+  @UseGuards(JwtAuthGuard, AccessGuard)
   @UseAbility(BookActions.read, BookEntity, bookId())
   findFile(
     @Param('id') _id: string,
@@ -156,8 +167,8 @@ export class BooksController {
 
   @Patch(':id')
   @ApiOkResponse({ type: BookEntity })
-  @ApiCookieAuth()
-  @UseGuards(IsAuthenticatedGuard, AccessGuard)
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, AccessGuard)
   @UseAbility(BookActions.update, BookEntity, bookId())
   update(
     @Param('id') id: string,
@@ -170,17 +181,17 @@ export class BooksController {
   @Post(':id/cover')
   @ApiOperation({ description: 'Updates book cover' })
   @ApiOkResponse({ type: BookEntity })
-  @ApiCookieAuth()
+  @ApiBearerAuth()
   @ApiConsumes('multipart/form-data')
   @ApiBody({ type: FileUploadDto })
   @UseInterceptors(FileInterceptor('file'))
-  @UseGuards(IsAuthenticatedGuard, AccessGuard)
+  @UseGuards(JwtAuthGuard, AccessGuard)
   @UseAbility(BookActions.update, BookEntity, bookId())
   setCover(
     @Param('id') id: string,
     @UploadedFile(
       new ParseFilePipeBuilder()
-        .addFileTypeValidator({ fileType: /png|jpeg|jpg/ })
+        // .addFileTypeValidator({ fileType: /png|jpeg|jpg/ })
         .build(),
     )
     file: Express.Multer.File,
@@ -192,11 +203,11 @@ export class BooksController {
   @Post(':id/file')
   @ApiOperation({ description: 'Updates book file' })
   @ApiOkResponse({ type: BookEntity })
-  @ApiCookieAuth()
+  @ApiBearerAuth()
   @ApiConsumes('multipart/form-data')
   @ApiBody({ type: FileUploadDto })
   @UseInterceptors(FileInterceptor('file'))
-  @UseGuards(IsAuthenticatedGuard, AccessGuard)
+  @UseGuards(JwtAuthGuard, AccessGuard)
   @UseAbility(BookActions.update, BookEntity, bookId())
   setFile(
     @Param('id') id: string,
@@ -209,21 +220,21 @@ export class BooksController {
   @Post(':id/submit')
   @ApiOperation({ description: 'Submits a book for approval' })
   @ApiCreatedResponse({ type: BookEntity })
-  @ApiCookieAuth()
-  @UseGuards(IsAuthenticatedGuard, AccessGuard)
-  @UseAbility(BookActions.approve, BookEntity, bookId())
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, AccessGuard)
+  @UseAbility(BookActions.create, BookEntity, bookId())
   submit(
     @Param('id') id: string,
     @CaslSubject() subjectProxy: BookProxy,
   ): Promise<BookEntity> {
-    return this.bookService.approve(id, subjectProxy);
+    return this.bookService.submit(id, subjectProxy);
   }
 
   @Post(':id/approve')
   @ApiOperation({ description: 'Approves a book' })
   @ApiCreatedResponse({ type: BookEntity })
-  @ApiCookieAuth()
-  @UseGuards(IsAuthenticatedGuard, AccessGuard)
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, AccessGuard)
   @UseAbility(BookActions.approve, BookEntity, bookId())
   approve(
     @Param('id') id: string,
@@ -235,8 +246,8 @@ export class BooksController {
   @Post(':id/reject')
   @ApiOperation({ description: 'Rejects an approval submission' })
   @ApiCreatedResponse({ type: BookEntity })
-  @ApiCookieAuth()
-  @UseGuards(IsAuthenticatedGuard, AccessGuard)
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, AccessGuard)
   @UseAbility(BookActions.approve, BookEntity, bookId())
   reject(
     @Param('id') id: string,
@@ -248,8 +259,8 @@ export class BooksController {
   @Post(':id/archive')
   @ApiOperation({ description: 'Archives a book' })
   @ApiCreatedResponse({ type: BookEntity })
-  @ApiCookieAuth()
-  @UseGuards(IsAuthenticatedGuard, AccessGuard)
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, AccessGuard)
   @UseAbility(BookActions.archive, BookEntity, bookId())
   archive(
     @Param('id') id: string,
@@ -261,8 +272,8 @@ export class BooksController {
   @Post(':id/unarchive')
   @ApiOperation({ description: 'Restores an archived book' })
   @ApiCreatedResponse({ type: BookEntity })
-  @ApiCookieAuth()
-  @UseGuards(IsAuthenticatedGuard, AccessGuard)
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, AccessGuard)
   @UseAbility(BookActions.unarchive, BookEntity, bookId())
   unarchive(
     @Param('id') id: string,
@@ -273,8 +284,8 @@ export class BooksController {
 
   @Delete(':id')
   @ApiOperation({ description: 'Deletes an archived book' })
-  @ApiCookieAuth()
-  @UseGuards(IsAuthenticatedGuard, AccessGuard)
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, AccessGuard)
   @UseAbility(BookActions.delete, BookEntity, bookId())
   delete(
     @Param('id') id: string,

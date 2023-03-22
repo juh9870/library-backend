@@ -1,10 +1,11 @@
 import { Injectable, NotFoundException, StreamableFile } from '@nestjs/common';
 import type { Response } from 'express';
 import fg from 'fast-glob';
-import { createReadStream } from 'fs';
+import { createReadStream, createWriteStream, WriteStream } from 'fs';
 import { access, ensureDir, rename, unlink, writeFile } from 'fs-extra';
 import { lookup } from 'mime-types';
 import path from 'path';
+import { slugify } from 'transliteration';
 import { z } from 'zod';
 
 import { ConfigService } from '../config/config.service';
@@ -24,12 +25,14 @@ export class FilesService {
     file: Express.Multer.File,
   ): Promise<string> {
     const toDelete = await fg([
-      path.join(this.configService.FILE_PATH, id, key + '.*'),
+      path.join(this.configService.FILE_PATH, `${id}.${key}.*`),
     ]);
     await Promise.all(toDelete.map((p) => unlink(p)));
 
-    const fileName = key + path.extname(file.originalname);
-    const newPath = path.join(this.configService.FILE_PATH, id, fileName);
+    const fileName = `${slugify(
+      path.basename(file.originalname),
+    )}.${id}.${key}${path.extname(file.originalname)}`;
+    const newPath = path.join(this.configService.FILE_PATH, fileName);
     await ensureDir(path.dirname(newPath));
     if (file.path) await rename(file.path, newPath);
     else {
@@ -38,33 +41,50 @@ export class FilesService {
     return fileName;
   }
 
+  public async createWriteStream(
+    id: string,
+    key: FileType,
+    originalname: string,
+  ): Promise<readonly [WriteStream, string]> {
+    const toDelete = await fg([
+      path.join(this.configService.FILE_PATH, `${id}.${key}.*`),
+    ]);
+    await Promise.all(toDelete.map((p) => unlink(p)));
+
+    const fileName = `${id}.${key}${path.extname(originalname)}`;
+    const newPath = path.join(this.configService.FILE_PATH, fileName);
+    await ensureDir(path.dirname(newPath));
+    return [createWriteStream(newPath), fileName] as const;
+  }
+
   public async deleteAll(id: string): Promise<void> {
     const toDelete = await fg([
-      path.join(this.configService.FILE_PATH, id, '*'),
+      path.join(this.configService.FILE_PATH, id + '.*'),
     ]);
     await Promise.all(toDelete.map((p) => unlink(p)));
   }
 
   public async getFile(
-    id: string,
-    filename: string,
+    filename: string | null,
     res: Response,
     dispositionFileName: string | null,
   ): Promise<StreamableFile> {
     res.setHeader(
       'Content-Type',
-      lookup(filename) || 'application/octet-stream',
+      (filename && (lookup(filename) || 'application/octet-stream')) ??
+        'image/png',
     );
-    if (dispositionFileName) {
+    if (dispositionFileName && filename) {
+      const disposition = slugify(dispositionFileName) + path.extname(filename);
       res.setHeader(
         'Content-Disposition',
-        `attachment; filename="${
-          dispositionFileName + path.extname(filename)
-        }"`,
+        `attachment; filename="${disposition}"`,
       );
     }
     try {
-      const filePath = path.join(this.configService.FILE_PATH, id, filename);
+      const filePath =
+        (filename && path.join(this.configService.FILE_PATH, filename)) ??
+        './cover.png';
       await access(filePath);
       const file = createReadStream(filePath);
       return new StreamableFile(file);

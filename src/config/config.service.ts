@@ -41,6 +41,10 @@ export const configSchema = z.object({
   SESSION_CHECK_PERIOD: z.string().transform((s) => parse(s)),
   SESSION_SECRET: z.string().min(64),
   FILE_PATH: z.string(),
+  JWT_ACCESS_TOKEN_SECRET: z.string(),
+  JWT_ACCESS_TOKEN_EXPIRATION_TIME: z.string(),
+  JWT_REFRESH_TOKEN_SECRET: z.string(),
+  JWT_REFRESH_TOKEN_EXPIRATION_TIME: z.string(),
   SALT_ROUNDS: z.string().regex(/^\d+$/).transform(Number),
 });
 

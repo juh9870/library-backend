@@ -28,6 +28,10 @@ export const BooksPermissions: Permissions<
       state: BookStateSchema.Enum.DRAFT,
       userId: user.id,
     });
+    can(BookActions.read, BookEntity, {
+      state: BookStateSchema.Enum.UNAPPROVED,
+      userId: user.id,
+    });
     can(BookActions.update, BookEntity, {
       state: BookStateSchema.Enum.DRAFT,
       userId: user.id,
